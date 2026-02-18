@@ -1,0 +1,499 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Coffee, 
+  Menu as MenuIcon, 
+  ShoppingBag, 
+  Clock, 
+  Send, 
+  ChevronRight, 
+  CheckCircle2, 
+  X, 
+  Info,
+  User,
+  Bot,
+  Sparkles,
+  Quote,
+  UtensilsCrossed,
+  CakeSlice
+} from 'lucide-react';
+
+const MENU_ITEMS = [
+  // Drinks
+  { id: 1, name: 'Espresso', price: 55, category: 'Drink', sub: 'Hot', description: 'เข้มข้น ดุดัน ปลุกความสดชื่น', image: 'https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?w=400&q=80' },
+  { id: 2, name: 'Iced Latte', price: 75, category: 'Drink', sub: 'Iced', description: 'นุ่มละมุนด้วยนมสดและกาแฟชั้นดี', image: 'https://images.unsplash.com/photo-1461023058943-07fcaf1f17e7?w=400&q=80' },
+  { id: 4, name: 'Iced Americano', price: 60, category: 'Drink', sub: 'Iced', description: 'คลีน สดชื่น ดื่มง่ายได้ทุกวัน', image: 'https://images.unsplash.com/photo-1517701604599-bb24b3180ddf?w=400&q=80' },
+  { id: 5, name: 'Matcha Latte', price: 85, category: 'Drink', sub: 'Iced/Hot', description: 'มัทฉะแท้จากญี่ปุ่น ผสานความนุ่มของนม', image: 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=400&q=80' },
+  
+  // Desserts
+  { id: 6, name: 'Almond Croissant', price: 95, category: 'Dessert', sub: 'Bakery', description: 'ครัวซองต์เนยสด หอมกรุ่น ท็อปด้วยอัลมอนด์สไลซ์', image: 'https://images.unsplash.com/photo-1530610476181-d83430b64dcd?w=400&q=80' },
+  { id: 7, name: 'Blueberry Cheesecake', price: 125, category: 'Dessert', sub: 'Cake', description: 'ชีสเค้กเนื้อเนียน ตัดรสด้วยซอสบลูเบอร์รี่เข้มข้น', image: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=400&q=80' },
+  
+  // Food
+  { id: 8, name: 'Club Sandwich', price: 145, category: 'Food', sub: 'Main', description: 'แซนด์วิชไก่ แฮม ไข่ดาว และผักสด เสิร์ฟพร้อมเฟรนช์ฟรายส์', image: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=400&q=80' },
+  { id: 9, name: 'Spaghetti Carbonara', price: 185, category: 'Food', sub: 'Pasta', description: 'สปาเก็ตตี้ครีมซอสเข้มข้น โรยหน้าด้วยเบคอนกรอบ', image: 'https://images.unsplash.com/photo-1612874742237-6526221588e3?w=400&q=80' },
+];
+
+const App = () => {
+  const [messages, setMessages] = useState([
+    { id: 1, role: 'bot', text: 'สวัสดีครับ! ยินดีต้อนรับสู่ Bean & Brew ☕️ ตอนนี้เรามีทั้งกาแฟ ของหวาน และอาหารจานหลักพร้อมเสิร์ฟแล้วนะครับ ให้ผมช่วยแนะนำเมนูไหนดีครับ?', type: 'text' }
+  ]);
+  const [inputText, setInputText] = useState('');
+  const [view, setView] = useState('chat'); // chat, menu, status, order-form, recommendation
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [recommendationInput, setRecommendationInput] = useState('');
+  const [fortune, setFortune] = useState({}); // { orderId: text }
+  const chatEndRef = useRef(null);
+
+  const apiKey = ""; 
+  const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
+
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const callGemini = async (prompt, systemInstruction = "") => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
+    };
+
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+          const data = await response.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text;
+        }
+      } catch (error) {}
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
+    throw new Error("Failed to connect to AI");
+  };
+
+  const addMessage = (text, role = 'user', type = 'text', data = null) => {
+    setMessages(prev => [...prev, { id: Date.now(), role, text, type, data }]);
+  };
+
+  const handleSend = async (e) => {
+    if (e) e.preventDefault();
+    if (!inputText.trim()) return;
+
+    const userText = inputText;
+    setInputText('');
+    addMessage(userText, 'user');
+    setIsLoading(true);
+    
+    try {
+      if (userText.includes('เมนู') || userText.includes('หิว') || userText.includes('กิน')) {
+        setTimeout(() => {
+          handleViewMenu();
+          setIsLoading(false);
+        }, 500);
+      } else if (userText.includes('สถานะ') || userText.includes('ออร์เดอร์')) {
+        setTimeout(() => {
+          handleCheckStatus();
+          setIsLoading(false);
+        }, 500);
+      } else {
+        const systemPrompt = `คุณคือพนักงานร้าน Bean & Brew ตอบคำถามอย่างสุภาพ แนะนำเมนูที่มีทั้ง เครื่องดื่ม (Coffee, Matcha), ของหวาน (Croissant, Cheesecake), และอาหาร (Sandwich, Spaghetti) หากลูกค้าต้องการดูเมนูให้บอกว่า 'กดปุ่มเมนูด้านล่างได้เลยครับ' รายการเมนูทั้งหมด: ${JSON.stringify(MENU_ITEMS)}`;
+        const aiResponse = await callGemini(userText, systemPrompt);
+        addMessage(aiResponse || "ขออภัยครับ ผมไม่เข้าใจคำถามนี้ ให้ผมช่วยเปิดเมนูอาหารและเครื่องดื่มให้ดูไหมครับ?", 'bot');
+        setIsLoading(false);
+      }
+    } catch (err) {
+      addMessage("ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว แต่คุณยังสามารถสั่งอาหารและเครื่องดื่มผ่านเมนูด้านล่างได้ครับ", 'bot');
+      setIsLoading(false);
+    }
+  };
+
+  const handleRecommend = async () => {
+    if (!recommendationInput.trim()) return;
+    setIsLoading(true);
+    const mood = recommendationInput;
+    setRecommendationInput('');
+    
+    try {
+      const prompt = `ลูกค้าบอกว่า: "${mood}". จากเมนูร้านเรา: ${JSON.stringify(MENU_ITEMS)}, ช่วยจัด "Set" ที่ประกอบด้วยเครื่องดื่ม 1 อย่าง และอาหารหรือของหวาน 1 อย่างที่เข้ากัน พร้อมเหตุผลสั้นๆ ตอบเป็นภาษาไทย`;
+      const aiResponse = await callGemini(prompt, "คุณเป็น Food Stylist และ Barista ผู้เชี่ยวชาญการจับคู่รสชาติ (Pairing)");
+      
+      setView('chat');
+      addMessage(`อยากหาอะไรทานที่เข้ากับ "${mood}"...`, 'user');
+      addMessage(aiResponse, 'bot');
+    } catch (err) {
+      addMessage("ขออภัยครับ ระบบ AI แนะนำเมนูขัดข้อง ลองเลือกดูเมนูทั้งหมดก่อนนะครับ", 'bot');
+      setView('chat');
+    }
+    setIsLoading(false);
+  };
+
+  const getFortune = async (orderId) => {
+    if (fortune[orderId]) return;
+    setIsLoading(true);
+    try {
+      const prompt = "สร้างคำทำนายดวงชะตารายวันแบบสั้นๆ และข้อความให้กำลังใจ (ภาษาไทย)";
+      const aiFortune = await callGemini(prompt, "คุณคือนักพยากรณ์จากกากกาแฟและจานอาหาร (The Oracle)");
+      setFortune(prev => ({ ...prev, [orderId]: aiFortune }));
+    } catch (err) {
+      setFortune(prev => ({ ...prev, [orderId]: "วันนี้คือวันที่ดีของคุณ!" }));
+    }
+    setIsLoading(false);
+  };
+
+  const handleViewMenu = () => {
+    setView('menu');
+  };
+
+  const handleCheckStatus = () => {
+    if (orders.length === 0) {
+      addMessage("ตอนนี้คุณยังไม่มีรายการสั่งซื้อครับ หิวหรือยังครับ? สั่งอาหารหรือขนมเพิ่มได้นะ", 'bot');
+    } else {
+      setView('status');
+    }
+  };
+
+  const placeOrder = (options) => {
+    const newOrder = {
+      id: `#${Math.floor(1000 + Math.random() * 9000)}`,
+      item: selectedItem.name,
+      price: selectedItem.price,
+      options,
+      status: 'Preparing',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setOrders([newOrder, ...orders]);
+    setView('chat');
+    addMessage(`รับออร์เดอร์ ${selectedItem.name} เรียบร้อยครับ! เชฟและบาริสต้ากำลังจัดเตรียมให้ครับ`, 'bot');
+    setSelectedItem(null);
+
+    setTimeout(() => {
+      updateOrderStatus(newOrder.id, 'Brewing/Cooking');
+      setTimeout(() => {
+        updateOrderStatus(newOrder.id, 'Ready');
+        addMessage(`รายการ ${newOrder.id} (${newOrder.item}) พร้อมเสิร์ฟแล้วครับ! ทานให้อร่อยนะ ✨`, 'bot');
+      }, 7000);
+    }, 4000);
+  };
+
+  const updateOrderStatus = (orderId, newStatus) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+  };
+
+  const filteredItems = selectedCategory === 'All' 
+    ? MENU_ITEMS 
+    : MENU_ITEMS.filter(item => item.category === selectedCategory);
+
+  return (
+    <div className="flex flex-col h-screen max-w-md mx-auto bg-stone-50 shadow-2xl overflow-hidden font-sans border-x border-stone-200">
+      {/* Header */}
+      <header className="bg-stone-800 text-stone-100 p-4 flex items-center justify-between shadow-lg z-10">
+        <div className="flex items-center gap-3">
+          <div className="bg-amber-600 p-2 rounded-xl shadow-inner">
+            <Coffee size={20} className="text-white" />
+          </div>
+          <div>
+            <h1 className="font-bold text-lg leading-tight tracking-tight">Bean & Brew</h1>
+            <p className="text-[10px] text-amber-400 uppercase tracking-widest font-bold">Cafe & Kitchen</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+           <button onClick={() => setView('recommendation')} className="bg-stone-700 p-2 rounded-lg hover:bg-stone-600 transition-colors">
+            <Sparkles size={18} className="text-amber-400" />
+           </button>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4 bg-stone-50 relative">
+        
+        {view === 'chat' && (
+          <div className="flex flex-col gap-4">
+            {messages.map((m) => (
+              <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-300`}>
+                <div className={`flex gap-2 max-w-[85%] ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${m.role === 'user' ? 'bg-amber-200 text-amber-900' : 'bg-white text-stone-800 border border-stone-100'}`}>
+                    {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                  </div>
+                  <div className={`p-3 rounded-2xl text-sm shadow-md whitespace-pre-wrap ${
+                    m.role === 'user' 
+                      ? 'bg-amber-800 text-white rounded-tr-none' 
+                      : 'bg-white text-stone-800 rounded-tl-none border border-stone-100'
+                  }`}>
+                    {m.text}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex justify-start animate-pulse">
+                <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce"></span>
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        )}
+
+        {view === 'recommendation' && (
+          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-stone-900 rounded-3xl p-6 text-white shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10">
+                <UtensilsCrossed size={120} />
+              </div>
+              <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+                Food & Drink Matcher ✨
+              </h2>
+              <p className="text-stone-400 text-sm mb-6">บอกเราว่าตอนนี้คุณอยากทานแนวไหน เดี๋ยว AI จัดเซตเมนูสุดคุ้มที่เข้าคู่กันมาให้ครับ</p>
+              
+              <textarea 
+                className="w-full bg-stone-800 border border-stone-700 rounded-2xl p-4 text-white placeholder-stone-600 focus:ring-2 focus:ring-amber-500 transition-all text-sm h-32 mb-4"
+                placeholder="เช่น: 'หิวมาก อยากทานอะไรหนักท้อง' หรือ 'อยากทานของหวานคู่กับกาแฟเย็น'..."
+                value={recommendationInput}
+                onChange={(e) => setRecommendationInput(e.target.value)}
+              />
+              
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setView('chat')}
+                  className="flex-1 py-3 px-4 rounded-xl border border-stone-700 font-bold hover:bg-stone-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isLoading || !recommendationInput}
+                  onClick={handleRecommend}
+                  className="flex-[2] py-3 px-4 rounded-xl bg-amber-500 text-amber-950 font-bold hover:bg-amber-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLoading ? 'Thinking...' : <><Sparkles size={18} /> Pair for Me ✨</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'menu' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex items-center justify-between sticky top-0 bg-stone-50/90 backdrop-blur-sm py-2 z-20">
+              <h2 className="text-xl font-black text-stone-800 tracking-tight">Digital Menu</h2>
+              <button onClick={() => setView('chat')} className="p-2 hover:bg-stone-200 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Category Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              {['All', 'Drink', 'Dessert', 'Food'].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-5 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap shadow-sm border ${
+                    selectedCategory === cat 
+                      ? 'bg-amber-800 text-white border-amber-800' 
+                      : 'bg-white text-stone-500 border-stone-200 hover:border-amber-300'
+                  }`}
+                >
+                  {cat === 'All' ? 'ทั้งหมด' : cat === 'Drink' ? 'เครื่องดื่ม' : cat === 'Dessert' ? 'ของหวาน' : 'อาหาร'}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 pb-20">
+              {filteredItems.map((item) => (
+                <div key={item.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 flex group hover:shadow-md transition-shadow">
+                  <div className="w-28 h-28 shrink-0 overflow-hidden relative">
+                    <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    <div className="absolute top-1 left-1">
+                      {item.category === 'Dessert' && <div className="bg-pink-500 p-1 rounded-lg text-white"><CakeSlice size={12}/></div>}
+                      {item.category === 'Food' && <div className="bg-orange-500 p-1 rounded-lg text-white"><UtensilsCrossed size={12}/></div>}
+                    </div>
+                  </div>
+                  <div className="flex-1 p-4 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-bold text-stone-800 leading-none mb-1">{item.name}</h3>
+                        <span className="text-[8px] font-bold text-stone-300 uppercase">{item.sub}</span>
+                      </div>
+                      <p className="text-[10px] text-stone-400 mb-1 line-clamp-2">{item.description}</p>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-800 font-black">฿{item.price}</span>
+                      <button 
+                        onClick={() => { setSelectedItem(item); setView('order-form'); }}
+                        className="bg-stone-900 text-white px-4 py-1.5 rounded-full text-xs font-bold hover:bg-amber-700 transition-colors"
+                      >
+                        Order
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {view === 'order-form' && selectedItem && (
+          <div className="bg-white rounded-3xl p-6 shadow-2xl space-y-6 animate-in zoom-in-95">
+            <div className="flex justify-between items-start">
+              <div className="flex gap-4">
+                <img src={selectedItem.image} className="w-16 h-16 rounded-xl object-cover" alt={selectedItem.name}/>
+                <div>
+                  <h2 className="text-2xl font-black text-stone-800">{selectedItem.name}</h2>
+                  <p className="text-amber-700 font-bold text-lg">฿{selectedItem.price}</p>
+                </div>
+              </div>
+              <button onClick={() => setView('menu')} className="p-2 text-stone-300 hover:text-stone-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <p className="font-bold text-xs uppercase tracking-widest text-stone-400">Additional Requests</p>
+                <input 
+                  type="text" 
+                  placeholder="เช่น ไม่ผัก, หวานน้อย, เพิ่มซอส..." 
+                  className="w-full bg-stone-50 border-stone-200 rounded-xl p-3 text-sm focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={() => placeOrder({})}
+              className="w-full py-4 bg-stone-900 text-white rounded-2xl font-bold shadow-xl shadow-stone-200 hover:bg-amber-800 transition-all flex items-center justify-center gap-2"
+            >
+              Confirm Order
+            </button>
+          </div>
+        )}
+
+        {view === 'status' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black text-stone-800">My Orders</h2>
+              <button onClick={() => setView('chat')} className="p-2 hover:bg-stone-200 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {orders.map((order) => (
+                <div key={order.id} className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 relative overflow-hidden">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full mb-1 inline-block">{order.id}</span>
+                      <h3 className="font-bold text-stone-800 text-lg">{order.item}</h3>
+                    </div>
+                    <div className="text-right">
+                       <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                        order.status === 'Ready' ? 'bg-green-100 text-green-700' : 
+                        order.status === 'Brewing/Cooking' ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-400'
+                      }`}>
+                        {order.status}
+                      </span>
+                      <p className="text-[10px] text-stone-300 mt-1">{order.time}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="h-1.5 w-full bg-stone-50 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full bg-amber-600 transition-all duration-1000 ease-out rounded-full ${
+                          order.status === 'Preparing' ? 'w-1/3' : 
+                          order.status === 'Brewing/Cooking' ? 'w-2/3' : 'w-full'
+                        }`}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  {order.status === 'Ready' && (
+                    <div className="mt-4 space-y-3">
+                      <div className="p-3 bg-green-50 text-green-700 text-xs rounded-2xl flex items-center gap-2 font-medium">
+                        <CheckCircle2 size={16} />
+                        Your order is ready to serve!
+                      </div>
+                      
+                      {!fortune[order.id] ? (
+                        <button 
+                          onClick={() => getFortune(order.id)}
+                          className="w-full py-3 bg-amber-100 text-amber-900 rounded-2xl text-xs font-bold hover:bg-amber-200 transition-colors flex items-center justify-center gap-2 border border-amber-200 shadow-sm"
+                        >
+                          <Sparkles size={14} /> ดูคำทำนายวันนี้ ✨
+                        </button>
+                      ) : (
+                        <div className="p-4 bg-stone-900 text-amber-100 rounded-2xl animate-in zoom-in-95">
+                          <div className="flex gap-2 mb-2 items-center text-amber-400">
+                             <Quote size={14} fill="currentColor" />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">Today's Wisdom</span>
+                          </div>
+                          <p className="text-xs leading-relaxed italic">{fortune[order.id]}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Quick Actions Footer */}
+      <div className="bg-white border-t border-stone-100 px-4 py-2 grid grid-cols-4 gap-1">
+        <button onClick={() => setView('chat')} className={`flex flex-col items-center py-2 rounded-xl transition-colors ${view === 'chat' ? 'text-amber-800 bg-amber-50' : 'text-stone-400 hover:text-stone-600'}`}>
+          <Bot size={20} />
+          <span className="text-[10px] mt-1 font-bold">Chat</span>
+        </button>
+        <button onClick={handleViewMenu} className={`flex flex-col items-center py-2 rounded-xl transition-colors ${view === 'menu' ? 'text-amber-800 bg-amber-50' : 'text-stone-400 hover:text-stone-600'}`}>
+          <MenuIcon size={20} />
+          <span className="text-[10px] mt-1 font-bold">Menu</span>
+        </button>
+        <button onClick={() => setView('recommendation')} className={`flex flex-col items-center py-2 rounded-xl transition-colors ${view === 'recommendation' ? 'text-amber-800 bg-amber-50' : 'text-stone-400 hover:text-stone-600'}`}>
+          <UtensilsCrossed size={20} />
+          <span className="text-[10px] mt-1 font-bold">Pairing ✨</span>
+        </button>
+        <button onClick={() => setView('status')} className={`flex flex-col items-center py-2 rounded-xl transition-colors ${view === 'status' ? 'text-amber-800 bg-amber-50' : 'text-stone-400 hover:text-stone-600'}`}>
+          <Clock size={20} />
+          <span className="text-[10px] mt-1 font-bold">Status</span>
+        </button>
+      </div>
+
+      {/* Input Bar */}
+      <footer className="bg-white p-4 border-t border-stone-100 pb-8">
+        <form onSubmit={handleSend} className="flex gap-2 items-center bg-stone-100 p-1.5 rounded-2xl border border-stone-200 focus-within:ring-2 focus-within:ring-amber-500 focus-within:bg-white transition-all">
+          <input 
+            type="text" 
+            placeholder="สั่งอาหาร หรือคุยกับ AI..." 
+            className="flex-1 bg-transparent border-none focus:ring-0 text-sm p-2"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+          />
+          <button 
+            type="submit"
+            disabled={!inputText.trim() || isLoading}
+            className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center hover:bg-amber-800 shadow-lg transition-all active:scale-95 disabled:opacity-30"
+          >
+            <Send size={18} />
+          </button>
+        </form>
+      </footer>
+    </div>
+  );
+};
+
+export default App;
